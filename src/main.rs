@@ -1,5 +1,4 @@
 // TODO: Solve all / download all CLI option
-// Todo: Parse directly into Day
 // TODO: Don't hard code dir for data?
 // TODO: Parse session is right: 128 hex chars
 // TODO: Review errors
@@ -15,7 +14,7 @@ use anyhow::anyhow;
 use clap::{Parser, Subcommand};
 use reqwest::blocking::Client;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct Day(usize);
 
 impl TryFrom<usize> for Day {
@@ -36,6 +35,12 @@ impl Display for Day {
     }
 }
 
+impl Day {
+    fn parse_from_str(s: &str) -> Result<Self, std::num::ParseIntError> {
+        Ok(Day::try_from(s.parse::<usize>()?).unwrap())
+    }
+}
+
 fn print_day(day: Day) {
     let now = Instant::now();
     let result: Option<(Box<dyn Display>, Box<dyn Display>)> = match day {
@@ -51,6 +56,7 @@ fn print_day(day: Day) {
             println!(" [{:.2?}]\n    Part 1: {}\n    Part 2: {}", elapsed, part1, part2)
         }
     }
+    println!();
 }
 
 fn get_printable<F, A: 'static, B: 'static>(
@@ -88,7 +94,7 @@ fn parse_days(days: &[usize]) -> Vec<Day> {
     }).collect()
 }
 
-fn download_inputs_if_missing(path: &Path, days: &[usize]) -> anyhow::Result<()> {
+fn download_inputs_if_missing(path: &Path, days: &[Day]) -> anyhow::Result<()> {
     let mut client: Option<Client> = None;
     if !path.exists() {
         std::fs::create_dir(path)?
@@ -102,7 +108,7 @@ fn download_inputs_if_missing(path: &Path, days: &[usize]) -> anyhow::Result<()>
         }
     }
     for &day in days {
-        let daypath = path.join(format!("day{:0>2}.txt", day));
+        let daypath = path.join(format!("day{:0>2}.txt", day.0));
         if !daypath.exists() {
             println!("Downloading day {:0>2}...", day);
             if client.is_none() {
@@ -135,8 +141,8 @@ fn make_client() -> anyhow::Result<Client> {
     Ok(Client::builder().default_headers(headers).build()?)
 }
 
-fn download_input(client: &Client, day: usize) -> anyhow::Result<String> {
-    let url = format!("https://adventofcode.com/2022/day/{}/input", day);
+fn download_input(client: &Client, day: Day) -> anyhow::Result<String> {
+    let url = format!("https://adventofcode.com/2022/day/{}/input", day.0);
     let resp = client.get(url.as_str()).send()?;
     if !resp.status().is_success() {
         return Err(anyhow!(
@@ -158,8 +164,8 @@ enum Command {
     Download {
         path: PathBuf,
 
-        #[arg(required=true)]
-        days: Vec<usize>
+        #[arg(required=true, value_parser=Day::parse_from_str)]
+        days: Vec<Day>
     },
     Solve {
         #[arg(required=true)]
