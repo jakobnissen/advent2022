@@ -65,7 +65,8 @@ fn print_day(directory: &Path, day: u8) {
     let result: Option<(Box<dyn Display>, Box<dyn Display>)> = match day {
         1 => get_printable(days::day01::solve, path),
         2 => get_printable(days::day02::solve, path),
-        3..=25 => None,
+        3 => get_printable(days::day03::solve, path),
+        4..=25 => None,
         _ => unreachable!(),
     };
     let elapsed = now.elapsed();
