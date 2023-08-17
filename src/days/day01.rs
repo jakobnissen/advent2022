@@ -41,8 +41,10 @@ fn parse(s: &str) -> Vec<Option<NonZeroUsize>> {
     // so popping the last None element cannot possibly leave an empty vector
     match result.last() {
         None => panic!("Input file of Day1 contains no nonempty lines"),
-        Some(None) => {result.pop();},
-        Some(Some(_)) => ()
+        Some(None) => {
+            result.pop();
+        }
+        Some(Some(_)) => (),
     }
     result
 }
@@ -66,6 +68,6 @@ mod tests {
 
     #[test]
     fn test() {
-        assert_eq!(super::solve(&super::parse(TEST_STR)), (24000, 45000))
+        assert_eq!(super::solve(&TEST_STR), (24000, 45000))
     }
 }

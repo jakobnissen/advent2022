@@ -1,59 +1,83 @@
-// TODO: Solve all / download all CLI option
-// TODO: Don't hard code dir for data?
-// TODO: Parse session is right: 128 hex chars
 // TODO: Review errors
 
 mod days;
 
-use std::time::Instant;
 use std::fmt::Display;
 use std::fs::{metadata, read_to_string};
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
+use std::time::Instant;
 
 use anyhow::anyhow;
 use clap::{Parser, Subcommand};
 use reqwest::blocking::Client;
 
-#[derive(Clone, Copy, Debug)]
-struct Day(usize);
+#[derive(Debug, Clone)]
+struct Days(Vec<u8>);
 
-impl TryFrom<usize> for Day {
-    type Error = ();
+impl Days {
+    fn new(it: impl IntoIterator<Item = u8>) -> Self {
+        let mut v: Vec<u8> = it
+            .into_iter()
+            .map(|x| {
+                if !(1..=25).contains(&x) {
+                    println!("Day not in range 1-25: {}", x);
+                    std::process::exit(1)
+                } else {
+                    x
+                }
+            })
+            .collect();
+        if v.is_empty() {
+            println!("No days specified, exiting");
+            std::process::exit(1);
+        }
+        v.sort_unstable();
+        v.dedup();
+        Days(v)
+    }
 
-    fn try_from(x: usize) -> Result<Self, Self::Error> {
-        if x > 25 || x < 1 {
-            Err(())
+    fn parse_from_args<T: AsRef<str>>(segments: &[T]) -> Self {
+        if segments
+            .iter()
+            .any(|x| x.as_ref().to_owned().to_lowercase() == "all")
+        {
+            if segments.len() == 1 {
+                Days::new(1..=25)
+            } else {
+                println!("If day \"all\" is specified, no other days can be specified.");
+                std::process::exit(1);
+            }
         } else {
-            Ok(Day(x))
+            Days::new(segments.iter().map(|s| {
+                s.as_ref().parse::<u8>().unwrap_or_else(|_| {
+                    println!("Error: Cannot parse as day in range 1-25: {}", s.as_ref());
+                    std::process::exit(1)
+                })
+            }))
         }
     }
 }
 
-impl Display for Day {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "Day {:0>2}", self.0)
-    }
-}
-
-impl Day {
-    fn parse_from_str(s: &str) -> Result<Self, std::num::ParseIntError> {
-        Ok(Day::try_from(s.parse::<usize>()?).unwrap())
-    }
-}
-
-fn print_day(day: Day) {
+fn print_day(directory: &Path, day: u8) {
     let now = Instant::now();
     let result: Option<(Box<dyn Display>, Box<dyn Display>)> = match day {
-        Day(1) => get_printable(days::day01::solve, "data/day01.txt"),
-        Day(2..=25) => None,
-        _ => unreachable!()
+        1 => get_printable(
+            days::day01::solve,
+            &directory.join(format!("day{:0>2}.txt", day)),
+        ),
+        2..=25 => None,
+        _ => unreachable!(),
     };
     let elapsed = now.elapsed();
-    print!("{}", day);
+    print!("Day {}", day);
     match result {
         None => println!(": Unimplemented!"),
         Some((part1, part2)) => {
-            println!(" [{:.2?}]\n    Part 1: {}\n    Part 2: {}", elapsed, part1, part2)
+            println!(
+                " [{:.2?}]\n    Part 1: {}\n    Part 2: {}",
+                elapsed, part1, part2
+            )
         }
     }
     println!();
@@ -61,40 +85,29 @@ fn print_day(day: Day) {
 
 fn get_printable<F, A: 'static, B: 'static>(
     f: F,
-    s: &str,
+    path: &Path,
 ) -> Option<(Box<dyn Display>, Box<dyn Display>)>
 where
     F: Fn(&str) -> (A, B),
     A: Display,
     B: Display,
 {
-    let data = match read_to_string(s) {
+    let data = match read_to_string(path) {
         Err(e) => {
-            println!("Error when reading file {} to string: \"{}\"", s, e);
+            println!(
+                "Error when reading file {} to string: \"{}\"",
+                path.display(),
+                e
+            );
             std::process::exit(1);
-        },
-        Ok(s) => s
+        }
+        Ok(s) => s,
     };
     let (a, b) = f(&data);
     Some((Box::new(a), Box::new(b)))
 }
 
-fn parse_days(days: &[usize]) -> Vec<Day> {
-    let mut usize_days = days.to_vec();
-    usize_days.sort_unstable();
-    usize_days.dedup();
-    usize_days.iter().map(|u| {
-        match Day::try_from(*u) {
-            Ok(day) => day,
-            Err(_) => {
-                println!("Cannot parse {} to day: Must be between 1 and 25.", u);
-                std::process::exit(1);
-            }
-        }
-    }).collect()
-}
-
-fn download_inputs_if_missing(path: &Path, days: &[Day]) -> anyhow::Result<()> {
+fn download_inputs_if_missing(path: &Path, days: &Days) -> anyhow::Result<()> {
     let mut client: Option<Client> = None;
     if !path.exists() {
         std::fs::create_dir(path)?
@@ -107,8 +120,8 @@ fn download_inputs_if_missing(path: &Path, days: &[Day]) -> anyhow::Result<()> {
             ));
         }
     }
-    for &day in days {
-        let daypath = path.join(format!("day{:0>2}.txt", day.0));
+    for &day in days.0.iter() {
+        let daypath = path.join(format!("day{:0>2}.txt", day));
         if !daypath.exists() {
             println!("Downloading day {:0>2}...", day);
             if client.is_none() {
@@ -125,8 +138,22 @@ fn download_inputs_if_missing(path: &Path, days: &[Day]) -> anyhow::Result<()> {
 
 fn make_client() -> anyhow::Result<Client> {
     let mut headers = reqwest::header::HeaderMap::default();
-    let session = match std::env::var("ADVENTOFCODE_SESSION") {
-        Ok(s) => s,
+    let session = get_session();
+    let cookie =
+        reqwest::header::HeaderValue::from_str(format!("session={}", session).as_str()).unwrap();
+    headers.insert("Cookie", cookie);
+    Ok(Client::builder().default_headers(headers).build()?)
+}
+
+fn get_session() -> String {
+    match std::env::var("ADVENTOFCODE_SESSION") {
+        Ok(s) => {
+            if s.len() != 128 || s.as_bytes().iter().any(|x| !x.is_ascii_hexdigit()) {
+                println!("Environmental variable ADVENTOFCODE_SESSION must be 128 hex digits");
+                std::process::exit(1);
+            }
+            s
+        }
         Err(e) => {
             println!(
                 "Error: Could not load environmental variable ADVENTOFCODE_SESSION: \"{}\"",
@@ -134,15 +161,11 @@ fn make_client() -> anyhow::Result<Client> {
             );
             std::process::exit(1);
         }
-    };
-    let cookie =
-        reqwest::header::HeaderValue::from_str(format!("session={}", session).as_str()).unwrap();
-    headers.insert("Cookie", cookie);
-    Ok(Client::builder().default_headers(headers).build()?)
+    }
 }
 
-fn download_input(client: &Client, day: Day) -> anyhow::Result<String> {
-    let url = format!("https://adventofcode.com/2022/day/{}/input", day.0);
+fn download_input(client: &Client, day: u8) -> anyhow::Result<String> {
+    let url = format!("https://adventofcode.com/2022/day/{}/input", day);
     let resp = client.get(url.as_str()).send()?;
     if !resp.status().is_success() {
         return Err(anyhow!(
@@ -156,33 +179,41 @@ fn download_input(client: &Client, day: Day) -> anyhow::Result<String> {
 #[derive(Parser, Debug)]
 struct Options {
     #[command(subcommand)]
-    command: Command
+    command: Command,
 }
 
 #[derive(Subcommand, Debug)]
 enum Command {
     Download {
+        /// Directory to download input data to
         path: PathBuf,
 
-        #[arg(required=true, value_parser=Day::parse_from_str)]
-        days: Vec<Day>
+        /// Days to download.
+        #[arg(required=true, default_values=vec!["all".to_string()])]
+        days_strings: Vec<String>,
     },
     Solve {
-        #[arg(required=true)]
-        days: Vec<usize>
-    }
+        /// Directory to load input data from
+        #[arg(short, default_value=PathBuf::from_str("data").unwrap().into_os_string())]
+        path: PathBuf,
+
+        /// Days to solve.
+        #[arg(required=true, default_values=vec!["all".to_string()])]
+        days_strings: Vec<String>,
+    },
 }
 
 fn main() {
     let args = Options::parse();
     match args.command {
-        Command::Download{path, days} => {
+        Command::Download { path, days_strings } => {
+            let days = Days::parse_from_args(&days_strings);
             download_inputs_if_missing(&path, &days).unwrap()
-        },
-        Command::Solve{days: days_usize} => {
-            let days = parse_days(&days_usize);
-            for day in days.iter() {
-                print_day(*day)
+        }
+        Command::Solve { path, days_strings } => {
+            let days = Days::parse_from_args(&days_strings);
+            for day in days.0.iter() {
+                print_day(&path, *day)
             }
         }
     }
