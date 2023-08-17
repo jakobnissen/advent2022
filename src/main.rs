@@ -61,12 +61,11 @@ impl Days {
 
 fn print_day(directory: &Path, day: u8) {
     let now = Instant::now();
+    let path = &directory.join(format!("day{:0>2}.txt", day));
     let result: Option<(Box<dyn Display>, Box<dyn Display>)> = match day {
-        1 => get_printable(
-            days::day01::solve,
-            &directory.join(format!("day{:0>2}.txt", day)),
-        ),
-        2..=25 => None,
+        1 => get_printable(days::day01::solve, path),
+        2 => get_printable(days::day02::solve, path),
+        3..=25 => None,
         _ => unreachable!(),
     };
     let elapsed = now.elapsed();
@@ -186,10 +185,11 @@ struct Options {
 enum Command {
     Download {
         /// Directory to download input data to
+        #[arg(short, default_value=PathBuf::from_str("data").unwrap().into_os_string())]
         path: PathBuf,
 
         /// Days to download.
-        #[arg(required=true, default_values=vec!["all".to_string()])]
+        #[arg(default_values=vec!["all".to_string()])]
         days_strings: Vec<String>,
     },
     Solve {
@@ -198,7 +198,7 @@ enum Command {
         path: PathBuf,
 
         /// Days to solve.
-        #[arg(required=true, default_values=vec!["all".to_string()])]
+        #[arg(default_values=vec!["all".to_string()])]
         days_strings: Vec<String>,
     },
 }
